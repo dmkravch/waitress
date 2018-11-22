@@ -1,35 +1,79 @@
-from flask import Flask, request
-from webexteamssdk import WebexTeamsAPI, Webhook
-WEBEX_TEAMS_ACCESS_TOKEN='Y2Q5NGNjOTctN2I3Yi00YjhmLWJmYTYtYzIyY2U0NzIwNGE1NjU3ZDAzNGItZTMy'
-flask_app = Flask(__name__)
-api = WebexTeamsAPI(access_token=WEBEX_TEAMS_ACCESS_TOKEN)
+from flask import Flask, request, render_template
+import sys, json, requests
+import datetime
+import time
+import requests
+from ciscosparkapi import CiscoSparkAPI, Webhook
+import string
+import random
 
-# Your Webex Teams webhook should point to http://<serverip>:5000/events
-@flask_app.route('/events', methods=['GET', 'POST'])
-def webex_teams_webhook_events():
-    if request.method == 'POST':
-        json_data = request.json
-        print("\n")
-        print("WEBHOOK POST RECEIVED:")
-        print(json_data)
-        print("\n")
+app = Flask(__name__)
 
-        # Create a Webhook object from the JSON data
-        webhook_obj = Webhook(json_data)
-        room = api.rooms.get(webhook_obj.data.roomId)
-        message = api.messages.get(webhook_obj.data.id)
-        person = api.people.get(message.personId)
+at = "Y2Q5NGNjOTctN2I3Yi00YjhmLWJmYTYtYzIyY2U0NzIwNGE1NjU3ZDAzNGItZTMy"
+spark_api = CiscoSparkAPI(at)
+accesstoken = "Bearer " + at
+bot_id = "Y2lzY29zcGFyazovL3VzL1BFT1BMRS8yYWZjYzc2Ny1iOGZmLTQ4YTgtOWExYy0yNGYxMDFmZTA5Zjc"
+webhook_id = "Y2lzY29zcGFyazovL3VzL1dFQkhPT0svZWZlNjdhOWItZTA2OS00MDg5LWJhN2UtZGU1MzA2ODBkYmIz"
+headers = {
+    'Authorization': accesstoken,
+    'Content-Type': "application/json; charset=utf-8",
+    'Cache-Control': "no-cache"
+}
 
-        print("NEW MESSAGE IN ROOM '{}'".format(room.title))
-        print("FROM '{}'".format(person.displayName))
-        print("MESSAGE '{}'\n".format(message.text))
+hello_message = "Hello!"
 
-        me = api.people.me()
-        if message.personId == me.id:
-            return 'Bot message'
+
+# functions:
+
+def get_message(msgid, accesstoken):
+    url = "https://api.ciscospark.com/v1/messages/" + msgid
+    headers = {
+        'Authorization': accesstoken}
+    obtained = requests.get(url, headers=headers)
+    # print(obtained)
+    dict = json.loads(obtained.text)
+    dict['statuscode'] = str(obtained.status_code)
+    return dict
+
+
+def remove_bots_display_name(message, accesstoken):
+    # get display name of the bot
+    url = "https://api.ciscospark.com/v1/people/me"
+    headers = {
+        'Authorization': accesstoken}
+    obtained = requests.get(url, headers=headers)
+    dict = json.loads(obtained.text)
+    name = dict['displayName']
+    # check if message starts with the display name, and remove display name
+    if (message.startswith(name) == True):
+        message = (message[(len(name) + 1):])
+    return message
+
+
+@app.route("/", methods=['POST'])
+def handle_message():
+    data = request.get_json()
+    personid = data["data"]["personId"]
+    if personid == bot_id:
+        return 'OK'
+    else:
+        if data["id"] != webhook_id:
+            return 'ok'
         else:
-            msg = api.messages.create(roomId=room.id, text="Sample text")
-            return 'Answer sent'
+            msgid = data["data"]["id"]
+            roomId = data["data"]["roomId"]
+            txt = get_message(msgid, accesstoken)
+            message = txt['text']
+            user_email = data["data"]["personEmail"]
+            message = remove_bots_display_name(message, accesstoken)
+            if message == message == "hello" or message == "hi" or message == "hi!":
+                spark_api.messages.create(roomId, text=hello_message, markdown=hello_message)
+            else:
+                spark_api.messages.create(roomId,
+                                          text='Sorry, the space that you would like to join is no longer active or does not exist.')
 
-if __name__ == '__main__':
-    flask_app.run(host='0.0.0.0', port=9900)
+
+# ------------------------------------------------------------
+if __name__ == "__main__":
+    app.run(host='ec2-52.28.189.59.eu-west-1.compute.amazonaws.com', port=8080)
+
